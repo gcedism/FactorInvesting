@@ -8,11 +8,18 @@ FOLDER = __file__[:-len('factor.py')]
 class Database:
 
     def __init__(self, vol_period:int=60, mom_period:int=12, download:bool=False):
-        ''' Receives some parameters to calculate de sub-portfolios
-            vol_period : Period for which the volatility is calculated
-            mom_period : period for which the momentum is calculated
-            download : download new fresh data, or recolect from a csv file(faster)
-        '''
+        """
+        Receives some parameters to calculate de sub-portfolios
+        :parameters:
+            vol_period : int,
+                Period for which the volatility is calculated
+                
+            mom_period : int,
+                Period for which the momentum is calculated
+                
+            download : bool (optional),
+                Download new fresh data, or recolect from a csv file(faster)
+        """
         if download : 
             print('Dowloading securities from Yahoo Finance...')
             from .download import _hist
@@ -27,10 +34,10 @@ class Database:
         self._hist = _hist
    
     # DECORATOR FOR SPLITTING THE PORTFOLIOS
-    
     def split(func) :
-        def w(self, period) :
-            df = func(self, period)
+        
+        def w(self, period, percentile) :
+            df = func(self, period, percentile)
             sub_ports = {
                 'low': [],
                 'mid': [],
@@ -38,9 +45,9 @@ class Database:
             }
             for i, row in df.iterrows() :
                 size = (~row.isnull()).sum() 
-                part_size = ceil(size / 3)
+                part_size = ceil(size / percentile)
                 row.sort_values(inplace=True)
-            
+                
                 low_stocks = row[:part_size].index
                 avg_perf = self._perf.loc[i, low_stocks].mean()
                 sub_ports['low'].append((low_stocks.to_list(), avg_perf))
@@ -56,18 +63,19 @@ class Database:
             return sub_ports
 
         return w
+        
     
     @split
-    def _value_p(self, period) :
+    def _value_p(self, period, percentile) :
         past_avg = sum([self._hist.shift(period+6-i) for i in range(12)]) / 12
         return past_avg / self._hist
     
     @split
-    def _momentum_p(self, period) :
+    def _momentum_p(self, period, percentile) :
         return self._perf.rolling(window=period).mean()
     
     @split
-    def _vol_p(self, period) :
+    def _vol_p(self, period, percentile) :
         return self._perf.rolling(window=period).std()
         
     @property
@@ -80,10 +88,30 @@ class Database:
     
 class Stocks(Database) :
     
-    def __init__(self, vol_period:int=60, mom_period:int=12, download:bool=False) :
+    def __init__(self, percentile:dict, vol_period:int=60, mom_period:int=12, download:bool=False) :
+        """
+        Sub_class variables : 
+        :parameters:
+            percentile : dict, 
+                Value into which to separate the portfolios
+        """
+
         Database.__init__(self, vol_period, mom_period, download)
         self._hist = self._hist['stocks']
         self._perf = self._perf['stocks']
-        self.value = self._value_p(60)
-        self.momentum = self._momentum_p(mom_period)
-        self.vol = self._vol_p(vol_period)
+        self._value = self._value_p(60, percentile['value'])
+        self._momentum = self._momentum_p(mom_period, percentile['momentum'])
+        self._vol = self._vol_p(vol_period, percentile['vol'])
+        
+    @property
+    def value(self) :
+        # To be updated with new previous Percentile
+        return self._value
+    
+    @property
+    def momentum(self):
+        return self._momentum
+    
+    @property
+    def vol(self):
+        return self._vol
